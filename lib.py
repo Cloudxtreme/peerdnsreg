@@ -38,88 +38,29 @@ def register(name, ip, port):
         print "***ERROR: trying to register with invalid port: %s" % int_port
         return
 
-    rh = redis.hgetall(rh_key(name))
-    if rh:
-        update_fastly_backend(name, ip, port, rh)
-    else:
-        create_fastly_backend(name, ip, port)
+    address = "%s:%d" % (ip, port)
+    peers = redis.hgetall("peers")
+    peer_known = name in peers
+    needs_update = not peer_known or peers[name] != address
+    if needs_update:
+        peers[name] = address
+        update_vcl(peers)
+        redis.hset("peers", name, address)
 
 def unregister(name):
-    rh = redis.hgetall(rh_key(name))
-    if not rh:
+    peers = redis.hgetall("peers")
+    peer_known = name in peers
+    if not peer_known:
         print "***ERROR: trying to unregister non existent name: %r" % name
         return
-    delete_fastly_backend(name)
-
-def create_fastly_backend(name, ip, port):
-    print "registering fastly backend %r at %s:%s" % (name, ip, port)
-    rh = {'ip': ip, 'port': port}
-    svcid = fastly_svcid()
-    with fastly_version() as version:
-        try:
-            fastly.create_condition(svcid,
-                                    version,
-                                    name,
-                                    'REQUEST',
-                                    'req.http.host == "%s.%s"' % (name,
-                                                                  DOMAIN))
-        except FastlyError:
-            # Maybe we have already created this condition, probably in
-            # a previous failed attempt to create this backend.
-            print "Error while trying to create condition; ignoring."
-            traceback.print_exc()
-        fastly.create_backend(svcid,
-                              version,
-                              name,
-                              ip,
-                              port=port,
-                              auto_loadbalance=True,
-                              weight=100,
-                              error_threshold=200000,
-                              request_condition=name,
-                              healthcheck="HEAD OK",
-                              max_conn=100,
-                              connect_timeout=10000,
-                              first_byte_timeout=30000,
-                              between_bytes_timeout=80000,
-                              comment="added by peerdnsreg")
-
-        fastly.create_director_backend(svcid, version, DIRECTOR_NAME, name)
-
-    rh['last_updated'] = redis_datetime()
-    with transaction() as rt:
-        rt.hmset(rh_key(name), rh)
-        rt.zadd(NAME_BY_TIMESTAMP_KEY, name, redis_timestamp())
-    print "backend created OK"
-
-def update_fastly_backend(name, ip, port, rh):
-    print "updating fastly backend %r at %s:%s, %r" % (name, ip, port, rh)
-    if rh['ip'] == ip and rh['port'] == port:
-        print "backend is up-to-date; leaving Fastly alone"
     else:
-        print "backend needs updating"
-        with fastly_version() as version:
-            fastly.update_backend(fastly_svcid(),
-                                  version,
-                                  name,
-                                  address=ip,
-                                  port=port)
-    with transaction() as rt:
-        rt.hmset(rh_key(name), {'last_updated': redis_datetime(),
-                                'ip': ip,
-                                'port': port})
-        rt.zadd(NAME_BY_TIMESTAMP_KEY, name, redis_timestamp())
-    print "backend updated OK"
+        del peers[name]
+        update_vcl(peers)
+        redis.hdel("peers", name)
 
-def delete_fastly_backend(name):
-    svcid = fastly_svcid()
-    with fastly_version() as version:
-        fastly.delete_backend(svcid, version, name)
-        fastly.delete_condition(svcid, version, name)
-    with transaction() as rt:
-        rt.delete(rh_key(name))
-        rt.zrem(NAME_BY_TIMESTAMP_KEY, name)
-    print "record deleted OK"
+def update_vcl(peers):
+    # TODO: generate VCL here using the templates defined at the end of this file and upload it to Fastly
+    pass
 
 def fastly_svcid():
     return os.environ['FASTLY_SERVICE_ID']
@@ -261,3 +202,165 @@ def check_and_route(*args, **kw):
             ret = log_tracebacks(ret)
         return app.route(*args, **kw)(ret)
     return deco
+
+BACKEND_TEMPLATE = """
+backend F_%d {
+    .connect_timeout = 10s;
+    .port = "%s";
+    .host = "%s";
+    .first_byte_timeout = 30s;
+    .saintmode_threshold = 200000;
+    .max_connections = 100;
+    .between_bytes_timeout = 80s;
+    .share_key = "11yqoXJrAAGxPiC07v3q9Z";
+      
+    .probe = {
+        .request = "HEAD / HTTP/1.1" "Host: getiantem.org" "Connection: close""User-Agent: Varnish/fastly (healthcheck)";
+        .threshold = 3;
+        .window = 5;
+        .timeout = 5s;
+        .initial = 4;
+        .expected_response = 200;
+        .interval = 15s;
+      }
+}
+"""
+
+DIRECTOR_BACKEND_TEMPLATE = """
+{
+    .backend = F_%d;
+    .weight  = 100;
+}
+"""
+
+CONDITION_TEMPLATE = """
+if( req.http.host == "%s.getiantem.org" ) {
+    set req.backend = F_%d;
+}
+"""
+
+VCL_TEMPLATE = """
+backend F_sp1 {
+    .connect_timeout = 10s;
+    .port = "80";
+    .host = "128.199.176.82";
+    .first_byte_timeout = 30s;
+    .saintmode_threshold = 200000;
+    .max_connections = 20000;
+    .between_bytes_timeout = 80s;
+    .share_key = "11yqoXJrAAGxPiC07v3q9Z";
+      
+    .probe = {
+        .request = "HEAD / HTTP/1.1" "Host: getiantem.org" "Connection: close""User-Agent: Varnish/fastly (healthcheck)";
+        .threshold = 3;
+        .window = 5;
+        .timeout = 5s;
+        .initial = 4;
+        .expected_response = 200;
+        .interval = 15s;
+      }
+}
+
+backend F_sp2 {
+    .connect_timeout = 10s;
+    .port = "80";
+    .host = "128.199.178.148";
+    .first_byte_timeout = 30s;
+    .saintmode_threshold = 200000;
+    .max_connections = 20000;
+    .between_bytes_timeout = 80s;
+    .share_key = "11yqoXJrAAGxPiC07v3q9Z";
+      
+    .probe = {
+        .request = "HEAD / HTTP/1.1" "Host: getiantem.org" "Connection: close""User-Agent: Varnish/fastly (healthcheck)";
+        .threshold = 3;
+        .window = 5;
+        .timeout = 5s;
+        .initial = 4;
+        .expected_response = 200;
+        .interval = 15s;
+      }
+}
+
+backend F_sp3 {
+    .connect_timeout = 10s;
+    .port = "80";
+    .host = "128.199.140.101";
+    .first_byte_timeout = 30s;
+    .saintmode_threshold = 200000;
+    .max_connections = 20000;
+    .between_bytes_timeout = 80s;
+    .share_key = "11yqoXJrAAGxPiC07v3q9Z";
+      
+    .probe = {
+        .request = "HEAD / HTTP/1.1" "Host: getiantem.org" "Connection: close""User-Agent: Varnish/fastly (healthcheck)";
+        .threshold = 3;
+        .window = 5;
+        .timeout = 5s;
+        .initial = 4;
+        .expected_response = 200;
+        .interval = 15s;
+      }
+}
+
+backend F_sp4 {
+    .connect_timeout = 10s;
+    .port = "80";
+    .host = "128.199.140.103";
+    .first_byte_timeout = 30s;
+    .saintmode_threshold = 200000;
+    .max_connections = 20000;
+    .between_bytes_timeout = 80s;
+    .share_key = "11yqoXJrAAGxPiC07v3q9Z";
+      
+    .probe = {
+        .request = "HEAD / HTTP/1.1" "Host: getiantem.org" "Connection: close""User-Agent: Varnish/fastly (healthcheck)";
+        .threshold = 3;
+        .window = 5;
+        .timeout = 5s;
+        .initial = 4;
+        .expected_response = 200;
+        .interval = 15s;
+      }
+}
+
+%s
+
+director PeerAutoDirector random {
+   .quorum = 1%;
+   .retries = 10;
+   {
+    .backend = F_sp1;
+    .weight  = 10000;
+   }{
+    .backend = F_sp2;
+    .weight  = 10000;
+   }{
+    .backend = F_sp3;
+    .weight  = 10000;
+   }{
+    .backend = F_sp4;
+    .weight  = 10000;
+   }%s
+}
+
+sub vcl_recv {
+  set req.backend = PeerAutoDirector;
+
+  # Sticky routing
+  if( req.http.host == "sp1.getiantem.org" ) {
+    set req.backend = F_sp1;
+  }
+  if( req.http.host == "sp2.getiantem.org" ) {
+    set req.backend = F_sp2;
+  }
+  if( req.http.host == "sp3.getiantem.org" ) {
+    set req.backend = F_sp3;
+  }
+  if( req.http.host == "sp4.getiantem.org" ) {
+    set req.backend = F_sp4;
+  }
+  %s
+  #FASTLY recv
+}
+"""
