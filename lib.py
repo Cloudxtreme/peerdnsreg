@@ -40,33 +40,44 @@ def register(name, ip, port):
         print "***ERROR: trying to register with invalid port: %s" % int_port
         return
 
+    print "Registering!!!"
     #address = "%s:%d" % (ip, port)
     peer = {'ip': ip, 'port': port, 'last_updated': redis_datetime()}
     peer_json = json.dumps(peer)
+
+    print "Storing json %s" % peer_json
     peers = redis.hgetall("peers")
-    peer_known = name in peers
-    needs_update = not peer_known or peers[name] != peer_json
-    if needs_update:
-        peers[name] = peer_json
-        update_vcl(peers)
+
+    key = rh_key(name)
+    peer_known = key in peers
+    needs_update = not peer_known or peers[key] != peer_json
     with transaction() as rt:
-        rt.hset("peers", name, peer)
+        print "Adding peer %s" % key
+        rt.hset("peers", key, peer_json)
         rt.zadd(NAME_BY_TIMESTAMP_KEY, name, redis_timestamp())
+    if needs_update:
+        print "Updating VCL"
+        peers[key] = peer_json
+        update_vcl(peers)
+        print "Done updating VCL"
+
 
 def unregister(name):
     peers = redis.hgetall("peers")
-    peer_known = name in peers
+    key = rh_key(name)
+    peer_known = key in peers
     if not peer_known:
-        print "***ERROR: trying to unregister non existent name: %r" % name
+        print "***ERROR: trying to unregister non existent name: %r" % key
         return
     else:
-        del peers[name]
+        del peers[key]
         update_vcl(peers)
     with transaction() as rt:
-        rt.delete("peers", name)
+        rt.delete("peers", key)
         rt.zrem(NAME_BY_TIMESTAMP_KEY, name)
 
 def dicter(jsonstr):
+    print "Loading json %s" % jsonstr
     return json.loads(jsonstr)
 
 def ip(peer):
@@ -83,13 +94,13 @@ def update_vcl(peers):
     template = env.get_template('loadbalance.vcl.tmpl')
     rendered = template.render(peers=peers, domain=DOMAIN)
 
-    name = 'lantern-vcl-' + redis_datetime()
+    name = 'lantern-vcl'
     svcid = fastly_svcid()
     with fastly_version() as version:
-        fastly.upload_vcl(svcid, version, name, rendered)
+        fastly.update_vcl(svcid, version, name, content=rendered)
 
         print "Activating version: %s" % version
-        client.activate_version(svcid, version)
+        fastly.activate_version(svcid, version)
         print "Done activating version: %s" % version
 
 def fastly_svcid():
@@ -98,10 +109,18 @@ def fastly_svcid():
 @contextmanager
 def fastly_version():
     svcid = fastly_svcid()
-    edit_version = int(os.environ['FASTLY_VERSION'])
-    yield edit_version
-    new_version = fastly.clone_version(fastly_svcid(), edit_version)
-    fastly.activate_version(svcid, new_version.number)
+    #edit_version = int(os.environ['FASTLY_VERSION'])
+    #yield edit_version
+    #new_version = fastly.clone_version(fastly_svcid(), edit_version)
+    #fastly.activate_version(svcid, new_version.number)
+
+    versions = fastly.list_versions(svcid)
+    latest = versions.pop()
+    if latest.locked is True or latest.active is True:
+        print "\n[ Cloning version %d ]\n"\
+            % (latest.number)
+        latest = fastly.clone_version(svcid, latest.number)
+    yield latest.number
 
 def remove_stale_entries():
     cutoff = time.time() - STALE_TIME
@@ -177,7 +196,7 @@ def transaction():
     txn.execute()
 
 def rh_key(name):
-    return 'cf:%s' % name
+    return 'cf-%s' % name
 
 def redis_datetime():
     "Human-readable version, for debugging."
