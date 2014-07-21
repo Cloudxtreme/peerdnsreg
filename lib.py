@@ -44,8 +44,7 @@ def register(name, ip, port):
     peer_json = json.dumps(peer)
     peers = redis.hgetall("peers")
     peer_known = name in peers
-    peer_updated = peers[name] != peer_json
-    needs_update = not peer_known or peer_updated
+    needs_update = not peer_known or peers[name] != peer_json
     if needs_update:
         peers[name] = peer_json
         update_vcl(peers)
