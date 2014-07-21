@@ -89,6 +89,7 @@ def update_vcl(peers):
 
         print "Activating version: %s" % version
         client.activate_version(svcid, version)
+        print "Done activating version: %s" % version
 
 def fastly_svcid():
     return os.environ['FASTLY_SERVICE_ID']
