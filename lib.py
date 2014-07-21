@@ -15,7 +15,8 @@ from jinja2 import Environment, FileSystemLoader
 app = None
 AUTH_TOKEN = os.getenv('AUTH_TOKEN')
 DEBUG = os.getenv('DEBUG') == 'true'
-DOMAIN = 'getiantem.org'
+#DOMAIN = 'getiantem.org'
+DOMAIN = '*.lantern-vcl-test.org'
 CF_ROUND_ROBIN_SUBDOMAIN = 'peerroundrobin'
 OWN_RECID_KEY = 'own_recid'
 ROUND_ROBIN_RECID_KEY = 'rr_recid'
@@ -80,7 +81,7 @@ def update_vcl(peers):
     env.filters['port'] = port
     env.filters['dicter'] = dicter
     template = env.get_template('loadbalance.vcl.tmpl')
-    rendered = template.render(peers=peers, domain="*.lantern-vcl-test.org")
+    rendered = template.render(peers=peers, domain=DOMAIN)
 
     name = 'lantern-vcl-' + redis_datetime()
     svcid = fastly_svcid()
