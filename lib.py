@@ -9,7 +9,8 @@ from fastly import connect as connect_to_fastly, FastlyError
 from flask import abort, request
 import pyflare
 import redis as redis_module
-
+import json
+from jinja2 import Environment, FileSystemLoader
 
 app = None
 AUTH_TOKEN = os.getenv('AUTH_TOKEN')
@@ -38,88 +39,46 @@ def register(name, ip, port):
         print "***ERROR: trying to register with invalid port: %s" % int_port
         return
 
-    rh = redis.hgetall(rh_key(name))
-    if rh:
-        update_fastly_backend(name, ip, port, rh)
-    else:
-        create_fastly_backend(name, ip, port)
+    #address = "%s:%d" % (ip, port)
+    peer = {'ip': ip, 'port': port, 'last_updated': redis_datetime()}
+    peer_json = json.dumps(peer)
+    peers = redis.hgetall("peers")
+    peer_known = name in peers
+    peer_updated = peers[name] != peer_json
+    needs_update = not peer_known or peer_updated
+    if needs_update:
+        peers[name] = peer_json
+        update_vcl(peers)
+    with transaction() as rt:
+        rt.hset("peers", name, peer)
+        rt.zadd(NAME_BY_TIMESTAMP_KEY, name, redis_timestamp())
 
 def unregister(name):
-    rh = redis.hgetall(rh_key(name))
-    if not rh:
+    peers = redis.hgetall("peers")
+    peer_known = name in peers
+    if not peer_known:
         print "***ERROR: trying to unregister non existent name: %r" % name
         return
-    delete_fastly_backend(name)
-
-def create_fastly_backend(name, ip, port):
-    print "registering fastly backend %r at %s:%s" % (name, ip, port)
-    rh = {'ip': ip, 'port': port}
-    svcid = fastly_svcid()
-    with fastly_version() as version:
-        try:
-            fastly.create_condition(svcid,
-                                    version,
-                                    name,
-                                    'REQUEST',
-                                    'req.http.host == "%s.%s"' % (name,
-                                                                  DOMAIN))
-        except FastlyError:
-            # Maybe we have already created this condition, probably in
-            # a previous failed attempt to create this backend.
-            print "Error while trying to create condition; ignoring."
-            traceback.print_exc()
-        fastly.create_backend(svcid,
-                              version,
-                              name,
-                              ip,
-                              port=port,
-                              auto_loadbalance=True,
-                              weight=100,
-                              error_threshold=200000,
-                              request_condition=name,
-                              healthcheck="HEAD OK",
-                              max_conn=100,
-                              connect_timeout=10000,
-                              first_byte_timeout=30000,
-                              between_bytes_timeout=80000,
-                              comment="added by peerdnsreg")
-
-        fastly.create_director_backend(svcid, version, DIRECTOR_NAME, name)
-
-    rh['last_updated'] = redis_datetime()
-    with transaction() as rt:
-        rt.hmset(rh_key(name), rh)
-        rt.zadd(NAME_BY_TIMESTAMP_KEY, name, redis_timestamp())
-    print "backend created OK"
-
-def update_fastly_backend(name, ip, port, rh):
-    print "updating fastly backend %r at %s:%s, %r" % (name, ip, port, rh)
-    if rh['ip'] == ip and rh['port'] == port:
-        print "backend is up-to-date; leaving Fastly alone"
     else:
-        print "backend needs updating"
-        with fastly_version() as version:
-            fastly.update_backend(fastly_svcid(),
-                                  version,
-                                  name,
-                                  address=ip,
-                                  port=port)
+        del peers[name]
+        update_vcl(peers)
     with transaction() as rt:
-        rt.hmset(rh_key(name), {'last_updated': redis_datetime(),
-                                'ip': ip,
-                                'port': port})
-        rt.zadd(NAME_BY_TIMESTAMP_KEY, name, redis_timestamp())
-    print "backend updated OK"
+        rt.delete("peers", name)
+        rt.zrem(NAME_BY_TIMESTAMP_KEY, name)
 
-def delete_fastly_backend(name):
+def update_vcl(peers):
+    env = Environment(loader=FileSystemLoader(BASE_DIR))
+    env.filters['ip'] = ip
+    env.filters['port'] = port
+    env.filters['dicter'] = dicter
+    template = env.get_template('loadbalance.vcl.tmpl')
+    rendered = template.render(peers=peers, domain="*.lantern-vcl-test.org")
+
+    name = 'lantern-vcl-' + redis_datetime()
     svcid = fastly_svcid()
     with fastly_version() as version:
-        fastly.delete_backend(svcid, version, name)
-        fastly.delete_condition(svcid, version, name)
-    with transaction() as rt:
-        rt.delete(rh_key(name))
-        rt.zrem(NAME_BY_TIMESTAMP_KEY, name)
-    print "record deleted OK"
+        fastly.upload_vcl(svcid, version, name, rendered)
+        client.activate_version(svcid, version)
 
 def fastly_svcid():
     return os.environ['FASTLY_SERVICE_ID']

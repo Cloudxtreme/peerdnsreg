@@ -12,8 +12,8 @@
 # environment variables.  You may want to change the following settings
 # for local testing:
 #
-# DEBUG=true
-# REDISCLOUD_URL=redis://localhost
+#DEBUG="true"
+#REDISCLOUD_URL="redis://localhost"
 
 import os
 import sys
@@ -32,14 +32,18 @@ fastly_secrets = load_secrets('fastly.com.md')
 
 def setcfg(name, secret):
     os.system("heroku config:set %s='%s'" % (name, secret))
+    #os.environ[name] = secret
+    #print 'name is: %s' % name 
 
 setcfg("CLOUDFLARE_USER", cf_secrets['user'])
 setcfg("CLOUDFLARE_API_KEY", cf_secrets['api_key'])
 setcfg("FASTLY_USER", fastly_secrets['user'])
 setcfg("FASTLY_PASSWORD", fastly_secrets['password'])
 setcfg("FASTLY_API_KEY", fastly_secrets['api_key'])
-setcfg("FASTLY_SERVICE_ID", '11yqoXJrAAGxPiC07v3q9Z')
+#setcfg("FASTLY_SERVICE_ID", '11yqoXJrAAGxPiC07v3q9Z')
+setcfg("FASTLY_SERVICE_ID", '7MQguq7iKvzUsSu7HbsUfJ')
 setcfg("FASTLY_VERSION", '599')
 setcfg("AUTH_TOKEN", pdr_secrets['auth_token'])
 setcfg("WEB_CONCURRENCY", 2)
-setcfg("DEBUG", 'false')
+setcfg("DEBUG", 'true')
+setcfg("REDISCLOUD_URL", 'pub-redis-16892.us-east-1-3.2.ec2.garantiadata.com:16892')
