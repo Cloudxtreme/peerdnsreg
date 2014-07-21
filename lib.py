@@ -65,6 +65,15 @@ def unregister(name):
         rt.delete("peers", name)
         rt.zrem(NAME_BY_TIMESTAMP_KEY, name)
 
+def dicter(jsonstr):
+    return json.loads(jsonstr)
+
+def ip(peer):
+    return peer.get("ip")
+
+def port(peer):
+    return peer.get("port")
+    
 def update_vcl(peers):
     env = Environment(loader=FileSystemLoader("."))
     env.filters['ip'] = ip
