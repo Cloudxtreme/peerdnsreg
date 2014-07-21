@@ -13,7 +13,7 @@ def run():
     class Done(Exception):
         pass
     def handler(signum, frame):
-        print "handling SIGTERM"
+        print "stale_checker handling SIGTERM"
         raise Done
     signal.signal(signal.SIGTERM, handler)
     try:
@@ -23,7 +23,7 @@ def run():
             q.enqueue(lib.remove_stale_entries)
             time.sleep(lib.CHECK_STALE_PERIOD)
     except Done:
-        print "Caught SIGTERM; bye!"
+        print "stale_checker caught SIGTERM; bye!"
 
 
 

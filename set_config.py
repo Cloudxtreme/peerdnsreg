@@ -42,8 +42,10 @@ setcfg("FASTLY_PASSWORD", fastly_secrets['password'])
 setcfg("FASTLY_API_KEY", fastly_secrets['api_key'])
 #setcfg("FASTLY_SERVICE_ID", '11yqoXJrAAGxPiC07v3q9Z')
 setcfg("FASTLY_SERVICE_ID", '7MQguq7iKvzUsSu7HbsUfJ')
-setcfg("FASTLY_VERSION", '599')
+setcfg("FASTLY_VERSION", '1')
 setcfg("AUTH_TOKEN", pdr_secrets['auth_token'])
 setcfg("WEB_CONCURRENCY", 2)
 setcfg("DEBUG", 'true')
-setcfg("REDISCLOUD_URL", 'pub-redis-16892.us-east-1-3.2.ec2.garantiadata.com:16892')
+
+# Note this needs to have a password of the form redis://rediscloud:pass@url
+#setcfg("REDISCLOUD_URL", 'redis://pub-redis-16892.us-east-1-3.2.ec2.garantiadata.com:16892')
