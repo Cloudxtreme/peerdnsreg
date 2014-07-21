@@ -66,7 +66,7 @@ def unregister(name):
         rt.zrem(NAME_BY_TIMESTAMP_KEY, name)
 
 def update_vcl(peers):
-    env = Environment(loader=FileSystemLoader(BASE_DIR))
+    env = Environment(loader=FileSystemLoader("."))
     env.filters['ip'] = ip
     env.filters['port'] = port
     env.filters['dicter'] = dicter
