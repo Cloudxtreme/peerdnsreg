@@ -73,7 +73,7 @@ def ip(peer):
 
 def port(peer):
     return peer.get("port")
-    
+
 def update_vcl(peers):
     env = Environment(loader=FileSystemLoader("."))
     env.filters['ip'] = ip
@@ -86,6 +86,8 @@ def update_vcl(peers):
     svcid = fastly_svcid()
     with fastly_version() as version:
         fastly.upload_vcl(svcid, version, name, rendered)
+
+        print "Activating version: %s" % version
         client.activate_version(svcid, version)
 
 def fastly_svcid():
