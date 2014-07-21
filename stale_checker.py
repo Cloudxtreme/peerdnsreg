@@ -17,7 +17,9 @@ def run():
         raise Done
     signal.signal(signal.SIGTERM, handler)
     try:
+        print "stale checker logging in to redis"
         lib.login_to_redis()
+        print "stale_checker logged in to redis"
         q = rq.Queue(connection=lib.redis)
         while True:
             q.enqueue(lib.remove_stale_entries)
