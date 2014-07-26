@@ -4,11 +4,9 @@ MarkupSafe==0.23
 PyYAML==3.11
 Werkzeug==0.9.6
 argparse==1.2.1
-git+git://github.com/getlantern/fastly-python.git@71226782fb
 gevent==1.0.1
 greenlet==0.4.2
 gunicorn==19.0.0
-httplib2==0.9
 itsdangerous==0.24
 pyflare==1.0.2
 redis==2.10.1
