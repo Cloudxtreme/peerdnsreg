@@ -22,9 +22,8 @@ q = rq.Queue(connection=lib.redis)
 
 @lib.check_and_route('/register', methods=methods)
 def register():
-    print ("Received register")
     name = lib.get_param('name')
-    ips = lib.get_header('X-Forwareded-For').split(',')
+    ips = lib.get_header('X-Forwarded-For').split(',')
     # IP is always the last in the list, see
     # http://stackoverflow.com/questions/18264304/get-clients-real-ip-address-on-heroku
     ip = ips[len(ips) - 1].strip()
