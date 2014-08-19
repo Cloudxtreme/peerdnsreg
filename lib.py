@@ -170,6 +170,9 @@ def login_to_cloudflare():
 def get_param(name):
     return request.args.get(name, request.form.get(name))
 
+def get_header(name):
+    return request.headers.get(name)
+
 def check_auth():
     if DO_CHECK_AUTH and get_param('auth-token') != AUTH_TOKEN:
         abort(403)

@@ -23,7 +23,10 @@ q = rq.Queue(connection=lib.redis)
 @lib.check_and_route('/register', methods=methods)
 def register():
     name = lib.get_param('name')
-    ip = lib.get_param('ip')
+    ips = lib.get_header('X-Forwareded-For').split(',')
+    # IP is always the last in the list, see
+    # http://stackoverflow.com/questions/18264304/get-clients-real-ip-address-on-heroku
+    ip = ips[len(ips) - 1].strip()
     port = lib.get_param('port')
     print ("Received register from %s:%s" % (ip, port))
     if int(port) != 443:
@@ -37,5 +40,5 @@ def register():
 @lib.check_and_route('/unregister', methods=methods)
 def unregister():
     name = lib.get_param('name')
-    q.enqueue(lib.unregister, name)
+    #q.enqueue(lib.unregister, name)
     return "OK"
